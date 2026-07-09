@@ -23,6 +23,12 @@ export class EnrollmentsController {
     return this.enrollmentsService.findMyEnrollments(user.sub);
   }
 
+  @UseGuards(RolesGuard) @Roles('TEACHER', 'ADMIN')
+  @Get('my-learners')
+  myLearners(@CurrentUser() user: any) {
+    return this.enrollmentsService.findMyLearners(user.sub);
+  }
+
   @UseGuards(RolesGuard) @Roles('ADMIN')
   @Get()
   findAll(@Query() query: any) { return this.enrollmentsService.findAll(query); }

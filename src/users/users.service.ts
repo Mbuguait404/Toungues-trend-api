@@ -1,4 +1,5 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
+import * as bcrypt from 'bcrypt';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { User, UserDocument, Role } from './schemas/user.schema';
@@ -10,6 +11,20 @@ export class UsersService {
 
   async create(data: Partial<User>): Promise<UserDocument> {
     return this.userModel.create(data);
+  }
+
+  async createByAdmin(data: Partial<User>): Promise<UserDocument> {
+    const exists = await this.userModel.findOne({ email: data.email });
+    if (exists) throw new ConflictException('Email already registered');
+    
+    // Hash password if provided, otherwise you might generate one
+    const password = data.password ? await bcrypt.hash(data.password, 12) : undefined;
+    
+    return this.userModel.create({
+      ...data,
+      password,
+      isActive: true
+    });
   }
 
   async findByEmail(email: string): Promise<UserDocument | null> {

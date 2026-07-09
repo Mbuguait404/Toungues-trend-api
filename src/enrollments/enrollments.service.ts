@@ -17,6 +17,21 @@ export class EnrollmentsService {
     return this.model.find({ userId }).populate('courseId', 'title language').exec();
   }
 
+  async findMyLearners(teacherId: string) {
+    const enrollments = await this.model.find()
+      .populate({
+        path: 'courseId',
+        match: { teacherIds: teacherId },
+        select: 'title language'
+      })
+      .populate('userId', 'name email avatarUrl country isActive')
+      .sort({ startedAt: -1 })
+      .exec();
+
+    // Only return enrollments for courses taught by this teacher
+    return enrollments.filter(e => e.courseId !== null);
+  }
+
   findById(id: string) { return this.model.findById(id).populate('courseId userId'); }
 
   findAll(query: any = {}) {

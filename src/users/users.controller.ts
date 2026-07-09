@@ -1,4 +1,4 @@
-import { Controller, Get, Put, Patch, Delete, Body, Param, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Put, Patch, Delete, Body, Param, Query, UseGuards, Post } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { UsersService } from './users.service';
 import { UpdateUserDto } from './dto/update-user.dto';
@@ -13,7 +13,7 @@ import { Role } from './schemas/user.schema';
 @UseGuards(JwtAuthGuard)
 @Controller('users')
 export class UsersController {
-  constructor(private readonly usersService: UsersService) {}
+  constructor(private readonly usersService: UsersService) { }
 
   @Get('me')
   getMe(@CurrentUser() user: any) {
@@ -29,6 +29,12 @@ export class UsersController {
   @Get()
   findAll(@Query() query: any) {
     return this.usersService.findAll(query);
+  }
+
+  @UseGuards(RolesGuard) @Roles('ADMIN')
+  @Post()
+  createByAdmin(@Body() dto: any) {
+    return this.usersService.createByAdmin(dto);
   }
 
   @UseGuards(RolesGuard) @Roles('ADMIN')

@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Delete, Param, Body, UploadedFile, UseInterceptors, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Param, Body, UploadedFile, UseInterceptors, UseGuards, Query } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { MaterialsService } from './materials.service';
@@ -14,11 +14,18 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 export class MaterialsController {
   constructor(private readonly materialsService: MaterialsService) {}
 
-  @Get(':moduleId')
+  @Get()
+  findAll(@Query('courseId') courseId?: string) { return this.materialsService.findAll(courseId); }
+
+  @UseGuards(RolesGuard) @Roles('TEACHER', 'ADMIN')
+  @Get('my')
+  findMy(@CurrentUser() user: any) { return this.materialsService.findMyMaterials(user.sub); }
+
+  @Get('module/:moduleId')
   findByModule(@Param('moduleId') moduleId: string) { return this.materialsService.findByModule(moduleId); }
 
   @UseGuards(RolesGuard) @Roles('TEACHER', 'ADMIN')
-  @Post('upload')
+  @Post()
   @UseInterceptors(FileInterceptor('file'))
   upload(@UploadedFile() file: Express.Multer.File, @Body() dto: any, @CurrentUser() user: any) {
     return this.materialsService.upload(file, dto, user.sub);

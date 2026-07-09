@@ -22,12 +22,12 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       : null;
 
     const message = exception instanceof HttpException
-      ? (typeof exceptionResponse === 'object'
+      ? (typeof exceptionResponse === 'object' && exceptionResponse !== null
           ? (exceptionResponse as any).message
           : exceptionResponse)
       : 'Internal server error';
 
-    const errors = typeof exceptionResponse === 'object'
+    const errors = typeof exceptionResponse === 'object' && exceptionResponse !== null
       ? (exceptionResponse as any).message
       : undefined;
 
