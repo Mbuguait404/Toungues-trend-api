@@ -43,4 +43,10 @@ export class EnrollmentsService {
     }
     return enrollment.save();
   }
+
+  async updateProgress(id: string) {
+    // This is called by ProgressService when a module is completed.
+    // Progress calculation could be implemented here if needed.
+    return this.model.findById(id);
+  }
 }
