@@ -1,15 +1,31 @@
-import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Enrollment, EnrollmentDocument } from './schemas/enrollment.schema';
+import { Progress, ProgressDocument } from '../progress/schemas/progress.schema';
+import { ModulesService } from '../modules/modules.service';
+import { CoursesService } from '../courses/courses.service';
 
 @Injectable()
 export class EnrollmentsService {
-  constructor(@InjectModel(Enrollment.name) private model: Model<EnrollmentDocument>) {}
+  constructor(
+    @InjectModel(Enrollment.name) private model: Model<EnrollmentDocument>,
+    @InjectModel(Progress.name) private progressModel: Model<ProgressDocument>,
+    private modulesService: ModulesService,
+    private coursesService: CoursesService,
+  ) {}
 
   async enrol(userId: string, courseId: string, level: string) {
+    let cid: Types.ObjectId;
+    if (Types.ObjectId.isValid(courseId)) {
+      cid = new Types.ObjectId(courseId);
+    } else {
+      const course = await this.coursesService.findByLanguage(courseId);
+      if (!course) throw new BadRequestException(`Invalid course identifier: ${courseId}`);
+      cid = course._id as Types.ObjectId;
+    }
+
     const uid = new Types.ObjectId(userId);
-    const cid = new Types.ObjectId(courseId);
     const exists = await this.model.findOne({ userId: uid, courseId: cid, status: { $ne: 'completed' } });
     if (exists) throw new ConflictException('Already enrolled in this course');
     return this.model.create({ userId: uid, courseId: cid, level });
@@ -63,8 +79,28 @@ export class EnrollmentsService {
   }
 
   async updateProgress(id: string) {
-    // This is called by ProgressService when a module is completed.
-    // Progress calculation could be implemented here if needed.
-    return this.model.findById(id);
+    const enrollment = await this.model.findById(id);
+    if (!enrollment) throw new NotFoundException('Enrollment not found');
+
+    const totalModules = await this.modulesService.countByCourse(enrollment.courseId.toString());
+    const completedCount = await this.progressModel.countDocuments({
+      enrollmentId: enrollment._id,
+      isCompleted: true,
+    });
+
+    const completedModuleIds = await this.progressModel.find({
+      enrollmentId: enrollment._id,
+      isCompleted: true,
+    }).distinct('moduleId');
+
+    enrollment.completedModules = completedModuleIds;
+    enrollment.progress = totalModules > 0 ? Math.round((completedCount / totalModules) * 100) : 0;
+
+    if (enrollment.progress >= 100) {
+      enrollment.status = 'completed';
+      enrollment.completedAt = new Date();
+    }
+
+    return enrollment.save();
   }
 }
