@@ -21,24 +21,32 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       ? exception.getResponse()
       : null;
 
-    const message = exception instanceof HttpException
-      ? (typeof exceptionResponse === 'object' && exceptionResponse !== null
-          ? (exceptionResponse as any).message
-          : exceptionResponse)
-      : 'Internal server error';
+    let message: string;
+    if (exception instanceof HttpException) {
+      if (typeof exceptionResponse === 'object' && exceptionResponse !== null) {
+        const msg = (exceptionResponse as any).message;
+        message = Array.isArray(msg) ? 'Validation failed' : (msg ?? 'An error occurred');
+      } else {
+        message = (exceptionResponse as string) ?? 'An error occurred';
+      }
+    } else if (exception instanceof Error) {
+      message = 'Internal server error';
+    } else {
+      message = 'Internal server error';
+    }
 
     const errors = typeof exceptionResponse === 'object' && exceptionResponse !== null
       ? (exceptionResponse as any).message
       : undefined;
 
     if (status >= 500) {
-      this.logger.error(exception instanceof Error ? exception.stack : exception);
+      this.logger.error(exception instanceof Error ? exception.stack : String(exception));
     }
 
     response.status(status).json({
       success: false,
       statusCode: status,
-      message: Array.isArray(message) ? 'Validation failed' : message,
+      message,
       errors: Array.isArray(errors) ? errors : undefined,
       timestamp: new Date().toISOString(),
       path: request.url,

@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import { Enrollment, EnrollmentDocument } from './schemas/enrollment.schema';
 
 @Injectable()
@@ -8,13 +8,16 @@ export class EnrollmentsService {
   constructor(@InjectModel(Enrollment.name) private model: Model<EnrollmentDocument>) {}
 
   async enrol(userId: string, courseId: string, level: string) {
-    const exists = await this.model.findOne({ userId, courseId, status: { $ne: 'completed' } });
+    const uid = new Types.ObjectId(userId);
+    const cid = new Types.ObjectId(courseId);
+    const exists = await this.model.findOne({ userId: uid, courseId: cid, status: { $ne: 'completed' } });
     if (exists) throw new ConflictException('Already enrolled in this course');
-    return this.model.create({ userId, courseId, level });
+    return this.model.create({ userId: uid, courseId: cid, level });
   }
 
   findMyEnrollments(userId: string) {
-    return this.model.find({ userId }).populate('courseId', 'title language').exec();
+    const uid = new Types.ObjectId(userId);
+    return this.model.find({ userId: uid }).populate('courseId', 'title language description').exec();
   }
 
   async findMyLearners(teacherId: string) {
