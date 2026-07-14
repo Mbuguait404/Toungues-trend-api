@@ -37,18 +37,15 @@ export class EnrollmentsService {
   }
 
   async findMyLearners(teacherId: string) {
-    const enrollments = await this.model.find()
-      .populate({
-        path: 'courseId',
-        match: { teacherIds: teacherId },
-        select: 'title language'
-      })
+    const teacherCourses = await this.coursesService.findByTeacher(teacherId);
+    const courseIds = teacherCourses.map(c => c._id);
+    if (courseIds.length === 0) return [];
+
+    return this.model.find({ courseId: { $in: courseIds } })
       .populate('userId', 'name email avatarUrl country isActive')
+      .populate('courseId', 'title language')
       .sort({ startedAt: -1 })
       .exec();
-
-    // Only return enrollments for courses taught by this teacher
-    return enrollments.filter(e => e.courseId !== null);
   }
 
   findById(id: string) { return this.model.findById(id).populate('courseId userId'); }

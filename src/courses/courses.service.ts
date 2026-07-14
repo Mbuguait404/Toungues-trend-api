@@ -14,6 +14,9 @@ export class CoursesService {
     const lang = language.toLowerCase() as Language;
     return this.courseModel.findOne({ language: lang, isActive: true }).populate('teacherIds', 'name email avatarUrl');
   }
+  findByTeacher(teacherId: string) {
+    return this.courseModel.find({ teacherIds: teacherId, isActive: true }).populate('teacherIds', 'name email avatarUrl');
+  }
   create(dto: CreateCourseDto) { return this.courseModel.create(dto as any); }
   update(id: string, dto: Partial<CreateCourseDto>) {
     return this.courseModel.findByIdAndUpdate(id, dto, { new: true });

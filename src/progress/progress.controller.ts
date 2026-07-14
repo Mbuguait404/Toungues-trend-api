@@ -11,7 +11,7 @@ export class ProgressController {
 
   @Get()
   getProgress(
-    @CurrentUser('_id') userId: string,
+    @CurrentUser('sub') userId: string,
     @Param('enrollmentId') enrollmentId: string,
   ) {
     return this.progressService.getEnrollmentProgress(userId, enrollmentId);
@@ -19,7 +19,7 @@ export class ProgressController {
 
   @Put()
   updateProgress(
-    @CurrentUser('_id') userId: string,
+    @CurrentUser('sub') userId: string,
     @Param('enrollmentId') enrollmentId: string,
     @Body() dto: UpdateProgressDto,
   ) {
