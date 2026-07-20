@@ -1,6 +1,8 @@
 import { Controller, Get, Post, Put, Delete, Param, Body, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { ModulesService } from './modules.service';
+import { CreateModuleDto } from './dto/create-module.dto';
+import { UpdateModuleDto } from './dto/update-module.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -13,15 +15,32 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 export class ModulesController {
   constructor(private readonly modulesService: ModulesService) {}
 
-  @Get() findAll(@Query() query: any) { return this.modulesService.findAll(query); }
-  @Get(':id') findOne(@Param('id') id: string) { return this.modulesService.findById(id); }
+  @Get('count')
+  countByCourse(@Query('courseId') courseId: string, @Query('level') level?: string) {
+    return this.modulesService.countByCourse(courseId, level);
+  }
+
+  @Get()
+  findAll(@Query('courseId') courseId?: string, @Query('level') level?: string) {
+    return this.modulesService.findAll(courseId, level);
+  }
+
+  @Get(':id')
+  findOne(@Param('id') id: string) { return this.modulesService.findById(id); }
 
   @UseGuards(RolesGuard) @Roles('TEACHER', 'ADMIN')
-  @Post() create(@Body() dto: any, @CurrentUser() user: any) { return this.modulesService.create(dto, user.sub); }
+  @Post()
+  create(@Body() dto: CreateModuleDto, @CurrentUser() user: any) {
+    return this.modulesService.create(dto, user.sub);
+  }
 
   @UseGuards(RolesGuard) @Roles('TEACHER', 'ADMIN')
-  @Put(':id') update(@Param('id') id: string, @Body() dto: any) { return this.modulesService.update(id, dto); }
+  @Put(':id')
+  update(@Param('id') id: string, @Body() dto: UpdateModuleDto) {
+    return this.modulesService.update(id, dto);
+  }
 
   @UseGuards(RolesGuard) @Roles('ADMIN')
-  @Delete(':id') delete(@Param('id') id: string) { return this.modulesService.delete(id); }
+  @Delete(':id')
+  delete(@Param('id') id: string) { return this.modulesService.delete(id); }
 }

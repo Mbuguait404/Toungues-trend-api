@@ -18,8 +18,10 @@ export class MaterialsService {
     });
   }
 
-  findAll(courseId?: string) { 
-    const query = courseId ? { courseId } : {};
+  findAll(courseId?: string, moduleId?: string) { 
+    const query: any = {};
+    if (courseId) query.courseId = courseId;
+    if (moduleId) query.moduleId = moduleId;
     return this.model.find(query).sort({ createdAt: -1 }).populate('uploadedBy', 'name email avatarUrl'); 
   }
 

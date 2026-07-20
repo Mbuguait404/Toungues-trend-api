@@ -33,7 +33,18 @@ export class EnrollmentsService {
 
   findMyEnrollments(userId: string) {
     const uid = new Types.ObjectId(userId);
-    return this.model.find({ userId: uid }).populate('courseId', 'title language description').exec();
+    return this.model.find({ userId: uid }).populate('courseId', 'title language description').then(async (enrollments) => {
+      const enriched = [];
+      for (const e of enrollments) {
+        const total = await this.modulesService.countByCourse((e.courseId as any)._id?.toString() || e.courseId.toString(), e.level);
+        enriched.push({
+          ...e.toObject(),
+          totalModules: total,
+          completedModulesCount: e.completedModules.length,
+        });
+      }
+      return enriched;
+    });
   }
 
   async findMyLearners(teacherId: string) {
@@ -42,6 +53,14 @@ export class EnrollmentsService {
     if (courseIds.length === 0) return [];
 
     return this.model.find({ courseId: { $in: courseIds } })
+      .populate('userId', 'name email avatarUrl country isActive')
+      .populate('courseId', 'title language')
+      .sort({ startedAt: -1 })
+      .exec();
+  }
+
+  findByCourse(courseId: string) {
+    return this.model.find({ courseId: new Types.ObjectId(courseId) })
       .populate('userId', 'name email avatarUrl country isActive')
       .populate('courseId', 'title language')
       .sort({ startedAt: -1 })

@@ -33,6 +33,12 @@ export class EnrollmentsController {
   @Get()
   findAll(@Query() query: any) { return this.enrollmentsService.findAll(query); }
 
+  @UseGuards(RolesGuard) @Roles('ADMIN')
+  @Get('by-course/:courseId')
+  findByCourse(@Param('courseId') courseId: string) {
+    return this.enrollmentsService.findByCourse(courseId);
+  }
+
   @Get(':id')
   findOne(@Param('id') id: string) { return this.enrollmentsService.findById(id); }
 
