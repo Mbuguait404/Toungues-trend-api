@@ -34,7 +34,7 @@ export class EnrollmentsService {
   findMyEnrollments(userId: string) {
     const uid = new Types.ObjectId(userId);
     return this.model.find({ userId: uid }).populate('courseId', 'title language description').then(async (enrollments) => {
-      const enriched = [];
+      const enriched: any[] = [];
       for (const e of enrollments) {
         const total = await this.modulesService.countByCourse((e.courseId as any)._id?.toString() || e.courseId.toString(), e.level);
         enriched.push({
