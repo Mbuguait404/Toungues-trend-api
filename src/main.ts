@@ -13,8 +13,24 @@ async function bootstrap() {
   app.setGlobalPrefix('api/v1');
 
   // CORS
+  const allowedOrigins = [
+    'http://localhost:3000',
+    'https://toungestrend.netlify.app',
+    'https://toungues-trend-client.vercel.app',
+    'https://www.tonguestrend.com',
+    'https://tonguestrend.com',
+  ];
+  if (process.env.FRONTEND_URL) {
+    allowedOrigins.push(process.env.FRONTEND_URL);
+  }
   app.enableCors({
-    origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error('Not allowed by CORS'));
+      }
+    },
     credentials: true,
   });
 
