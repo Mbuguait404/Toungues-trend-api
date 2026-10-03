@@ -10,6 +10,9 @@ export class CoursesService {
 
   findAll() { return this.courseModel.find({ isActive: true }).populate('teacherIds', 'name email avatarUrl'); }
   findById(id: string) { return this.courseModel.findById(id).populate('teacherIds', 'name email avatarUrl'); }
+  findByIds(ids: string[]) {
+    return this.courseModel.find({ _id: { $in: ids } }).populate('teacherIds', 'name email avatarUrl');
+  }
   findByLanguage(language: string) {
     const lang = language.toLowerCase() as Language;
     return this.courseModel.findOne({ language: lang, isActive: true }).populate('teacherIds', 'name email avatarUrl');

@@ -31,20 +31,27 @@ export class EnrollmentsService {
     return this.model.create({ userId: uid, courseId: cid, level });
   }
 
-  findMyEnrollments(userId: string) {
+  async findMyEnrollments(userId: string) {
     const uid = new Types.ObjectId(userId);
-    return this.model.find({ userId: uid }).populate('courseId', 'title language description').then(async (enrollments) => {
-      const enriched: any[] = [];
-      for (const e of enrollments) {
-        const total = await this.modulesService.countByCourse((e.courseId as any)._id?.toString() || e.courseId.toString(), e.level);
-        enriched.push({
-          ...e.toObject(),
-          totalModules: total,
-          completedModulesCount: e.completedModules.length,
-        });
-      }
-      return enriched;
-    });
+    const rows = (await this.model
+      .find({ userId: uid })
+      .lean()
+      .exec()) as any[];
+
+    await this.attachCourseRefs(rows);
+
+    const enriched: any[] = [];
+    for (const e of rows) {
+      const courseId = e.courseId?._id ?? e.courseId;
+      if (!courseId) continue; // course reference could not be resolved
+      const total = await this.modulesService.countByCourse(String(courseId), e.level);
+      enriched.push({
+        ...e,
+        totalModules: total,
+        completedModulesCount: (e.completedModules ?? []).length,
+      });
+    }
+    return enriched;
   }
 
   async findMyLearners(teacherId: string) {
@@ -69,11 +76,48 @@ export class EnrollmentsService {
 
   findById(id: string) { return this.model.findById(id).populate('courseId userId'); }
 
+  /**
+   * Resolves `courseId` references without Mongoose's populate().
+   *
+   * populate() builds an `_id: { $in: [...] }` filter and casts every value, so a
+   * single legacy row holding a non-ObjectId (e.g. the language string "english")
+   * makes the whole query throw a CastError. Here we only pass values that are
+   * genuinely ObjectIds, and unresolvable refs become null instead of 500ing.
+   */
+  private async attachCourseRefs<T extends { courseId: unknown }>(rows: T[]): Promise<T[]> {
+    const rawId = (row: T) =>
+      row.courseId && typeof row.courseId === 'object' && '_id' in (row.courseId as object)
+        ? (row.courseId as { _id: unknown })._id
+        : row.courseId;
+
+    const isObjectId = (v: unknown) =>
+      v instanceof Types.ObjectId ||
+      (typeof v === 'string' && /^[0-9a-fA-F]{24}$/.test(v));
+
+    const ids = [...new Set(rows.map((r) => String(rawId(r) ?? '')).filter(isObjectId))];
+    const courses = ids.length ? await this.coursesService.findByIds(ids) : [];
+    const byId = new Map(courses.map((c: any) => [String(c._id), c]));
+
+    for (const row of rows) {
+      const id = String(rawId(row) ?? '');
+      row.courseId = (isObjectId(id) ? byId.get(id) : null) as T['courseId'];
+    }
+
+    return rows;
+  }
+
   findAll(query: any = {}) {
     const { status, page = 1, limit = 20 } = query;
     const filter: any = {};
     if (status) filter.status = status;
-    return this.model.find(filter).skip((page-1)*limit).limit(Number(limit)).populate('userId courseId');
+    return this.model
+      .find(filter)
+      .skip((page - 1) * limit)
+      .limit(Number(limit))
+      .populate('userId', 'name email avatarUrl country isActive')
+      .lean()
+      .exec()
+      .then((rows) => this.attachCourseRefs(rows as any[]));
   }
 
   async updateStatus(id: string, status: string) {
