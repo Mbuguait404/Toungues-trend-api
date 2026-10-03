@@ -17,6 +17,7 @@ export type QuizDocument = Quiz & Document;
 export class Quiz {
   @Prop({ type: Types.ObjectId, ref: 'CourseModule', required: true }) moduleId: Types.ObjectId;
   @Prop({ required: true }) title: string;
+  @Prop({ enum: ['free', 'premium'], default: 'premium' }) accessType: 'free' | 'premium';
   @Prop({ type: [QuizQuestionSchema], default: [] }) questions: QuizQuestion[];
   @Prop({ default: 70, min: 0, max: 100 }) passScore: number;
   @Prop({ type: Types.ObjectId, ref: 'User', required: true }) createdBy: Types.ObjectId;

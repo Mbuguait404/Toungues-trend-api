@@ -17,12 +17,9 @@ export default () => ({
     apiKey: process.env.CLOUDINARY_API_KEY,
     apiSecret: process.env.CLOUDINARY_API_SECRET,
   },
-  mpesa: {
-    consumerKey: process.env.MPESA_CONSUMER_KEY,
-    consumerSecret: process.env.MPESA_CONSUMER_SECRET,
-    shortcode: process.env.MPESA_SHORTCODE,
-    passkey: process.env.MPESA_PASSKEY,
-    env: process.env.MPESA_ENV || 'sandbox',
+  payhero: {
+    authToken: process.env.PAYHERO_AUTH_TOKEN,
+    channelId: process.env.PAYHERO_CHANNEL_ID,
   },
   stripe: {
     secretKey: process.env.STRIPE_SECRET_KEY,

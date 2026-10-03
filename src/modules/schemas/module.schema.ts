@@ -1,6 +1,22 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Document, Types } from 'mongoose';
+import { Document, Schema as MongooseSchema, Types } from 'mongoose';
 export type ModuleDocument = CourseModule & Document;
+
+const ModulePartSchema = new MongooseSchema({
+  title: { type: String, required: true },
+  content: { type: String, required: true },
+  order: { type: Number, required: true, default: 0 },
+  accessType: { type: String, enum: ['free', 'premium'], default: 'premium' },
+});
+
+export interface ModulePart {
+  _id?: Types.ObjectId;
+  title: string;
+  content: string;
+  order: number;
+  accessType: 'free' | 'premium';
+}
+
 @Schema({ timestamps: true })
 export class CourseModule {
   @Prop({ type: Types.ObjectId, ref: 'Course', required: true }) courseId: Types.ObjectId;
@@ -9,6 +25,8 @@ export class CourseModule {
   @Prop({ required: true, default: 0 }) order: number;
   @Prop() description?: string;
   @Prop() content?: string;
+  @Prop({ type: [ModulePartSchema], default: [] }) parts: ModulePart[];
+  @Prop({ enum: ['free', 'premium'], default: 'premium' }) accessType: 'free' | 'premium';
   @Prop({ type: [String], default: [] }) objectives: string[];
   @Prop({ default: 0 }) estimatedDuration: number;
   @Prop({ type: [Types.ObjectId], ref: 'CourseModule', default: [] }) prerequisiteModuleIds: Types.ObjectId[];

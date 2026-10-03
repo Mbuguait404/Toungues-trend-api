@@ -1,28 +1,64 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Quiz, QuizDocument } from './schemas/quiz.schema';
 import { QuizAttempt, QuizAttemptDocument } from './schemas/quiz-attempt.schema';
 import { CreateQuizDto } from './dto/create-quiz.dto';
 import { SubmitAttemptDto } from './dto/submit-attempt.dto';
+import { CourseModule, ModuleDocument } from '../modules/schemas/module.schema';
+import { CourseAccessService } from '../common/course-access.service';
 
 @Injectable()
 export class QuizzesService {
   constructor(
     @InjectModel(Quiz.name) private quizModel: Model<QuizDocument>,
     @InjectModel(QuizAttempt.name) private attemptModel: Model<QuizAttemptDocument>,
+    @InjectModel(CourseModule.name) private modules: Model<ModuleDocument>,
+    private courseAccess: CourseAccessService,
   ) {}
 
-  findByModule(moduleId: string) {
-    return this.quizModel.find({ moduleId }).select('-questions.correctIndex -questions.explanation');
+  async findByModule(moduleId: string, userId: string, role: string) {
+    const quizzes = await this.quizModel.find({ moduleId });
+    return Promise.all(quizzes.map(async (quiz) => {
+      if (!await this.canAccessQuiz(quiz, userId, role)) {
+        return { _id: quiz._id, moduleId: quiz.moduleId, title: quiz.title, accessType: quiz.accessType, locked: true, questions: [] };
+      }
+      const data = quiz.toObject();
+      for (const question of data.questions ?? []) {
+        delete (question as any).correctIndex;
+        delete (question as any).explanation;
+      }
+      return { ...data, locked: false };
+    }));
   }
 
   findById(id: string) {
     return this.quizModel.findById(id);
   }
 
-  findByIdForLearner(id: string) {
-    return this.quizModel.findById(id).select('-questions.correctIndex -questions.explanation');
+  async findByIdForLearner(id: string, userId: string, role: string) {
+    const quiz = await this.quizModel.findById(id);
+    if (!quiz) return null;
+    if (!await this.canAccessQuiz(quiz, userId, role)) {
+      return { _id: quiz._id, moduleId: quiz.moduleId, title: quiz.title, accessType: quiz.accessType, locked: true, questions: [] };
+    }
+    const data = quiz.toObject();
+    for (const question of data.questions ?? []) {
+      delete (question as any).correctIndex;
+      delete (question as any).explanation;
+    }
+    return { ...data, locked: false };
+  }
+
+  private async canAccessQuiz(quiz: QuizDocument, userId: string, role: string) {
+    if (role === 'ADMIN' || role === 'TEACHER') return true;
+    const module = await this.modules.findById(quiz.moduleId).select('courseId level accessType').lean();
+    if (!module) return false;
+    if (!module.isPublished) return false;
+    if (quiz.accessType === 'free') return true;
+    if (module.accessType === 'free') return true;
+    const access = await this.courseAccess.getAccess(userId, role, module.courseId.toString(), module.level);
+    return access.level === 'full';
   }
 
   create(dto: CreateQuizDto, createdBy: string) {
@@ -37,9 +73,10 @@ export class QuizzesService {
     return this.quizModel.findByIdAndDelete(id);
   }
 
-  async submitAttempt(userId: string, quizId: string, dto: SubmitAttemptDto) {
+  async submitAttempt(userId: string, quizId: string, dto: SubmitAttemptDto, role: string) {
     const quiz = await this.quizModel.findById(quizId);
     if (!quiz) throw new NotFoundException('Quiz not found');
+    if (!await this.canAccessQuiz(quiz, userId, role)) throw new ForbiddenException('This quiz is locked');
     if (!quiz.questions || quiz.questions.length === 0) throw new BadRequestException('Quiz has no questions');
 
     const { answers } = dto;
@@ -64,7 +101,10 @@ export class QuizzesService {
     });
   }
 
-  async getAttempts(userId: string, quizId: string) {
+  async getAttempts(userId: string, quizId: string, role: string) {
+    const quiz = await this.quizModel.findById(quizId);
+    if (!quiz) throw new NotFoundException('Quiz not found');
+    if (!await this.canAccessQuiz(quiz, userId, role)) throw new ForbiddenException('This quiz is locked');
     return this.attemptModel.find({
       userId: new Types.ObjectId(userId),
       quizId: new Types.ObjectId(quizId),

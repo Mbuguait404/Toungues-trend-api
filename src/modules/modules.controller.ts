@@ -21,12 +21,14 @@ export class ModulesController {
   }
 
   @Get()
-  findAll(@Query('courseId') courseId?: string, @Query('level') level?: string) {
-    return this.modulesService.findAll(courseId, level);
+  findAll(@Query('courseId') courseId: string, @Query('level') level: string, @CurrentUser() user: any) {
+    return this.modulesService.findAll(courseId, level, user.sub, user.role);
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string) { return this.modulesService.findById(id); }
+  findOne(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.modulesService.findById(id, user.sub, user.role);
+  }
 
   @UseGuards(RolesGuard) @Roles('TEACHER', 'ADMIN')
   @Post()

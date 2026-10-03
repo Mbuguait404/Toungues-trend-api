@@ -19,8 +19,9 @@ export class MaterialsController {
   findAll(
     @Query('courseId') courseId?: string,
     @Query('moduleId') moduleId?: string,
+    @CurrentUser() user?: any,
   ) {
-    return this.materialsService.findAll(courseId, moduleId);
+    return this.materialsService.findAll(courseId, moduleId, user?.sub, user?.role);
   }
 
   @UseGuards(RolesGuard) @Roles('TEACHER', 'ADMIN')
@@ -28,7 +29,9 @@ export class MaterialsController {
   findMy(@CurrentUser() user: any) { return this.materialsService.findMyMaterials(user.sub); }
 
   @Get('module/:moduleId')
-  findByModule(@Param('moduleId') moduleId: string) { return this.materialsService.findByModule(moduleId); }
+  findByModule(@Param('moduleId') moduleId: string, @CurrentUser() user: any) {
+    return this.materialsService.findByModule(moduleId, user.sub, user.role);
+  }
 
   @UseGuards(RolesGuard) @Roles('TEACHER', 'ADMIN')
   @Post()
@@ -44,5 +47,7 @@ export class MaterialsController {
   @Delete(':id') delete(@Param('id') id: string) { return this.materialsService.delete(id); }
 
   @Post(':id/view')
-  incrementView(@Param('id') id: string) { return this.materialsService.incrementView(id); }
+  incrementView(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.materialsService.incrementView(id, user.sub, user.role);
+  }
 }

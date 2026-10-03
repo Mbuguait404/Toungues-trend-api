@@ -18,7 +18,15 @@ export class CreateMaterialDto {
   @IsOptional()
   moduleId?: string;
 
+  @IsMongoId()
+  @IsOptional()
+  partId?: string;
+
   @IsString()
   @IsOptional()
   youtubeUrl?: string;
+
+  @IsEnum(['free', 'premium'])
+  @IsOptional()
+  accessType?: string;
 }

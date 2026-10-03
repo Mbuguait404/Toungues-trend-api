@@ -26,9 +26,26 @@ export class EnrollmentsService {
     }
 
     const uid = new Types.ObjectId(userId);
-    const exists = await this.model.findOne({ userId: uid, courseId: cid, status: { $ne: 'completed' } });
-    if (exists) throw new ConflictException('Already enrolled in this course');
-    return this.model.create({ userId: uid, courseId: cid, level });
+    const course = await this.coursesService.findById(cid.toString());
+    if (!course || !course.isActive) throw new NotFoundException('Course not found');
+    const exists = await this.model.findOne({ userId: uid, courseId: cid, level, status: { $ne: 'completed' } });
+    if (exists) return exists;
+    return this.model.create({
+      userId: uid,
+      courseId: cid,
+      level,
+      accessStatus: course.accessType === 'free' ? 'free' : 'preview',
+    });
+  }
+
+  async grantPaidAccess(enrollmentId: string) {
+    const enrollment = await this.model.findByIdAndUpdate(
+      enrollmentId,
+      { $set: { accessStatus: 'paid', paidAt: new Date(), status: 'active' } },
+      { new: true },
+    );
+    if (!enrollment) throw new NotFoundException('Enrollment not found');
+    return enrollment;
   }
 
   async findMyEnrollments(userId: string) {
@@ -75,6 +92,14 @@ export class EnrollmentsService {
   }
 
   findById(id: string) { return this.model.findById(id).populate('courseId userId'); }
+
+  async findByIdForUser(id: string, userId: string, role: string) {
+    const enrollment = await this.model.findById(id).populate('courseId userId');
+    if (!enrollment) throw new NotFoundException('Enrollment not found');
+    const ownerId = (enrollment.userId as any)?._id?.toString() ?? enrollment.userId.toString();
+    if (role !== 'ADMIN' && ownerId !== userId) throw new NotFoundException('Enrollment not found');
+    return enrollment;
+  }
 
   /**
    * Resolves `courseId` references without Mongoose's populate().
@@ -146,11 +171,15 @@ export class EnrollmentsService {
     const completedCount = await this.progressModel.countDocuments({
       enrollmentId: enrollment._id,
       isCompleted: true,
+      partId: { $exists: false },
+      materialId: { $exists: false },
     });
 
     const completedModuleIds = await this.progressModel.find({
       enrollmentId: enrollment._id,
       isCompleted: true,
+      partId: { $exists: false },
+      materialId: { $exists: false },
     }).distinct('moduleId');
 
     enrollment.completedModules = completedModuleIds;

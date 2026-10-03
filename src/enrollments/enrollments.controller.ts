@@ -40,8 +40,11 @@ export class EnrollmentsController {
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string) { return this.enrollmentsService.findById(id); }
+  findOne(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.enrollmentsService.findByIdForUser(id, user.sub, user.role);
+  }
 
+  @UseGuards(RolesGuard) @Roles('ADMIN')
   @Patch(':id/status')
   updateStatus(@Param('id') id: string, @Body('status') status: string) {
     return this.enrollmentsService.updateStatus(id, status);

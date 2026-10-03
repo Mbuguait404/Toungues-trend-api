@@ -14,6 +14,15 @@ export class Progress {
   @Prop({ type: Types.ObjectId, ref: 'Module', required: true })
   moduleId: Types.ObjectId;
 
+  @Prop({ type: Types.ObjectId })
+  partId?: Types.ObjectId;
+
+  @Prop({ type: Types.ObjectId, ref: 'Material' })
+  materialId?: Types.ObjectId;
+
+  @Prop({ enum: ['viewed', 'completed'] })
+  eventType?: string;
+
   @Prop({ type: Boolean, default: false })
   isCompleted: boolean;
 

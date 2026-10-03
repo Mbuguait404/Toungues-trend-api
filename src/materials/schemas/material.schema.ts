@@ -4,10 +4,15 @@ export type MaterialDocument = Material & Document;
 @Schema({ timestamps: true })
 export class Material {
   @Prop({ type: Types.ObjectId, ref: 'CourseModule', required: false }) moduleId?: Types.ObjectId;
+  @Prop({ type: Types.ObjectId, required: false }) partId?: Types.ObjectId;
   @Prop({ type: Types.ObjectId, ref: 'Course', required: false }) courseId?: Types.ObjectId;
   @Prop({ required: true }) title: string;
   @Prop({ required: false, enum: ['pdf','audio','video','quiz','youtube'] }) type?: string;
+  @Prop({ enum: ['free', 'premium'], default: 'premium' }) accessType: 'free' | 'premium';
   @Prop({ required: true }) fileUrl: string;
+  @Prop() cloudinaryPublicId?: string;
+  @Prop() cloudinaryFormat?: string;
+  @Prop() cloudinaryResourceType?: string;
   @Prop({ required: false }) fileType?: string;
   @Prop() fileSize?: number;
   @Prop({ type: Types.ObjectId, ref: 'User', required: true }) uploadedBy: Types.ObjectId;
