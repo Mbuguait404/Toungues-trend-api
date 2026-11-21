@@ -5,6 +5,14 @@ export class UpdateProgressDto {
   moduleId: string;
 
   @IsOptional()
+  @IsMongoId()
+  partId?: string;
+
+  @IsOptional()
+  @IsMongoId()
+  materialId?: string;
+
+  @IsOptional()
   @IsBoolean()
   isCompleted?: boolean;
 

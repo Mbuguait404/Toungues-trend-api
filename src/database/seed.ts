@@ -42,6 +42,9 @@ const CourseSchema = new mongoose.Schema(
         title: { type: String, required: true },
         language: { type: String, enum: ['french', 'english', 'german', 'kiswahili'], required: true },
         description: { type: String, required: true },
+        accessType: { type: String, enum: ['paid', 'free'], default: 'paid' },
+        price: { type: Number, min: 0 },
+        currency: { type: String, enum: ['KES', 'EUR', 'CHF', 'USD'], default: 'KES' },
         levels: [{ type: String, enum: ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'] }],
         teacherIds: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
         isActive: { type: Boolean, default: true },
@@ -61,6 +64,13 @@ const CourseModuleSchema = new mongoose.Schema(
         order: { type: Number, required: true, default: 0 },
         description: String,
         content: String,
+        parts: [{
+            title: { type: String, required: true },
+            content: { type: String, required: true },
+            order: { type: Number, default: 0 },
+            accessType: { type: String, enum: ['free', 'premium'], default: 'premium' },
+        }],
+        accessType: { type: String, enum: ['free', 'premium'], default: 'premium' },
         objectives: [{ type: String }],
         estimatedDuration: { type: Number, default: 0 },
         prerequisiteModuleIds: [{ type: mongoose.Schema.Types.ObjectId, ref: 'CourseModule' }],
@@ -75,10 +85,15 @@ const CourseModuleSchema = new mongoose.Schema(
 const MaterialSchema = new mongoose.Schema(
     {
         moduleId: { type: mongoose.Schema.Types.ObjectId, ref: 'CourseModule', required: false },
+        partId: { type: mongoose.Schema.Types.ObjectId, required: false },
         courseId: { type: mongoose.Schema.Types.ObjectId, ref: 'Course', required: false },
         title: { type: String, required: true },
         type: { type: String, enum: ['pdf','audio','video','quiz','youtube'] },
+        accessType: { type: String, enum: ['free', 'premium'], default: 'premium' },
         fileUrl: { type: String, required: true },
+        cloudinaryPublicId: String,
+        cloudinaryFormat: String,
+        cloudinaryResourceType: String,
         fileType: String,
         fileSize: Number,
         uploadedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
@@ -529,6 +544,19 @@ async function seed() {
             for (const modData of modules) {
                 let existing = await ModuleModel.findOne({ courseId, title: modData.title, level });
                 if (existing) {
+                    if (level === 'A1' && modData.order === 1 && !existing.parts?.length) {
+                        existing.content = undefined;
+                        existing.accessType = 'premium';
+                        existing.parts = [
+                            { title: 'Free Preview', content: modData.description, order: 0, accessType: 'free' },
+                            { title: modData.title, content: modData.content, order: 1, accessType: 'premium' },
+                        ];
+                        await existing.save();
+                        await MaterialModel.updateMany(
+                            { moduleId: existing._id },
+                            { $set: { accessType: 'free', partId: existing.parts[0]._id } },
+                        );
+                    }
                     console.log(`   ⏭️   [${language} ${level}] ${modData.title} — skipping`);
                     continue;
                 }
@@ -537,6 +565,14 @@ async function seed() {
 
                 const created = await ModuleModel.create({
                     ...modData,
+                    content: undefined,
+                    accessType: 'premium',
+                    parts: level === 'A1' && modData.order === 1
+                        ? [
+                            { title: 'Free Preview', content: modData.description, order: 0, accessType: 'free' },
+                            { title: modData.title, content: modData.content, order: 1, accessType: 'premium' },
+                        ]
+                        : [],
                     courseId,
                     createdBy: teacherId,
                 });
@@ -546,6 +582,8 @@ async function seed() {
                     for (const matData of modData.materials) {
                         await MaterialModel.create({
                             ...matData,
+                            accessType: level === 'A1' && modData.order === 1 ? 'free' : 'premium',
+                            partId: level === 'A1' && modData.order === 1 ? created.parts[0]?._id : undefined,
                             courseId,
                             moduleId: created._id,
                             uploadedBy: teacherId,

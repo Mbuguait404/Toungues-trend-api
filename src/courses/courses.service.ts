@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { Course, CourseDocument, Language } from './schemas/course.schema';
@@ -20,9 +20,28 @@ export class CoursesService {
   findByTeacher(teacherId: string) {
     return this.courseModel.find({ teacherIds: teacherId, isActive: true }).populate('teacherIds', 'name email avatarUrl');
   }
-  create(dto: CreateCourseDto) { return this.courseModel.create(dto as any); }
-  update(id: string, dto: Partial<CreateCourseDto>) {
-    return this.courseModel.findByIdAndUpdate(id, dto, { new: true });
+  async create(dto: CreateCourseDto) {
+    const accessType = dto.accessType ?? 'paid';
+    if (accessType === 'paid' && (dto.price == null || !Number.isSafeInteger(dto.price) || dto.price <= 0)) {
+      throw new BadRequestException('A positive whole-number price is required for paid courses');
+    }
+    return this.courseModel.create({ ...dto, accessType, currency: dto.currency ?? 'KES' });
+  }
+
+  async update(id: string, dto: Partial<CreateCourseDto>) {
+    const course = await this.courseModel.findById(id);
+    if (!course) throw new NotFoundException('Course not found');
+
+    const accessType = dto.accessType ?? course.accessType ?? 'paid';
+    const price = dto.price ?? course.price;
+    if (accessType === 'paid' && (price == null || !Number.isSafeInteger(price) || price <= 0)) {
+      throw new BadRequestException('A positive whole-number price is required for paid courses');
+    }
+    return this.courseModel.findByIdAndUpdate(
+      id,
+      { ...dto, accessType },
+      { new: true, runValidators: true },
+    );
   }
   async assignTeacher(id: string, teacherId: string) {
     return this.courseModel.findByIdAndUpdate(id, { $addToSet: { teacherIds: teacherId } }, { new: true });

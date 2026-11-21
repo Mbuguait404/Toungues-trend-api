@@ -16,13 +16,13 @@ export class QuizzesController {
   constructor(private readonly quizzesService: QuizzesService) {}
 
   @Get('module/:moduleId')
-  findByModule(@Param('moduleId') moduleId: string) {
-    return this.quizzesService.findByModule(moduleId);
+  findByModule(@Param('moduleId') moduleId: string, @CurrentUser() user: any) {
+    return this.quizzesService.findByModule(moduleId, user.sub, user.role);
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.quizzesService.findByIdForLearner(id);
+  findOne(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.quizzesService.findByIdForLearner(id, user.sub, user.role);
   }
 
   @UseGuards(RolesGuard) @Roles('TEACHER', 'ADMIN')
@@ -55,11 +55,11 @@ export class QuizzesController {
     @Body() dto: SubmitAttemptDto,
     @CurrentUser() user: any,
   ) {
-    return this.quizzesService.submitAttempt(user.sub, id, dto);
+    return this.quizzesService.submitAttempt(user.sub, id, dto, user.role);
   }
 
   @Get(':id/attempts')
   getAttempts(@Param('id') id: string, @CurrentUser() user: any) {
-    return this.quizzesService.getAttempts(user.sub, id);
+    return this.quizzesService.getAttempts(user.sub, id, user.role);
   }
 }

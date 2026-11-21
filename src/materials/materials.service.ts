@@ -2,6 +2,8 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { Material, MaterialDocument } from './schemas/material.schema';
+import { CourseModule, ModuleDocument } from '../modules/schemas/module.schema';
+import { CourseAccessService } from '../common/course-access.service';
 import { v2 as cloudinary } from 'cloudinary';
 import { ConfigService } from '@nestjs/config';
 
@@ -9,7 +11,9 @@ import { ConfigService } from '@nestjs/config';
 export class MaterialsService {
   constructor(
     @InjectModel(Material.name) private model: Model<MaterialDocument>,
+    @InjectModel(CourseModule.name) private modules: Model<ModuleDocument>,
     private config: ConfigService,
+    private courseAccess: CourseAccessService,
   ) {
     cloudinary.config({
       cloud_name: this.config.get('cloudinary.cloudName'),
@@ -18,18 +22,66 @@ export class MaterialsService {
     });
   }
 
-  findAll(courseId?: string, moduleId?: string) { 
+  async findAll(courseId?: string, moduleId?: string, userId?: string, role?: string) {
     const query: any = {};
     if (courseId) query.courseId = courseId;
     if (moduleId) query.moduleId = moduleId;
-    return this.model.find(query).sort({ createdAt: -1 }).populate('uploadedBy', 'name email avatarUrl'); 
+    const materials = await this.model.find(query).sort({ createdAt: -1 })
+      .populate('uploadedBy', 'name email avatarUrl');
+    if (!userId || !role) return materials;
+    return Promise.all(materials.map((material) => this.applyAccess(material, userId, role)));
   }
 
   findMyMaterials(userId: string) {
     return this.model.find({ uploadedBy: userId }).sort({ createdAt: -1 }).populate('uploadedBy', 'name email avatarUrl');
   }
 
-  findByModule(moduleId: string) { return this.model.find({ moduleId }).sort({ createdAt: 1 }); }
+  async findByModule(moduleId: string, userId?: string, role?: string) {
+    const materials = await this.model.find({ moduleId }).sort({ createdAt: 1 });
+    if (!userId || !role) return materials;
+    return Promise.all(materials.map((material) => this.applyAccess(material, userId, role)));
+  }
+
+  private async applyAccess(material: MaterialDocument, userId: string, role: string) {
+    const data = material.toObject() as any;
+    if (role === 'ADMIN' || role === 'TEACHER') {
+      return { ...data, fileUrl: this.getDownloadUrl(material), locked: false };
+    }
+
+    const parentModule = material.moduleId
+      ? await this.modules.findById(material.moduleId).select('courseId level accessType parts isPublished').lean()
+      : null;
+    if (parentModule && !parentModule.isPublished) {
+      return { ...data, fileUrl: undefined, locked: true };
+    }
+    if (material.accessType === 'free') {
+      return { ...data, fileUrl: this.getDownloadUrl(material), locked: false };
+    }
+    const courseId = material.courseId?.toString() ?? parentModule?.courseId?.toString();
+    if (!courseId) return { ...data, fileUrl: undefined, locked: true };
+
+    const access = await this.courseAccess.getAccess(userId, role, courseId, parentModule?.level);
+    const freePart = Boolean(material.partId && parentModule?.parts?.some(
+      (part: any) => part._id?.toString() === material.partId?.toString() && part.accessType === 'free',
+    ));
+    const isLocked = access.level === 'locked' ||
+      (access.level !== 'full' && parentModule?.accessType !== 'free' && !freePart);
+    return { ...data, fileUrl: isLocked ? undefined : this.getDownloadUrl(material), locked: isLocked };
+  }
+
+  private getDownloadUrl(material: MaterialDocument) {
+    if (!material.cloudinaryPublicId) return material.fileUrl;
+    return cloudinary.utils.private_download_url(
+      material.cloudinaryPublicId,
+      material.cloudinaryFormat ?? '',
+      {
+        type: 'authenticated',
+        resource_type: material.cloudinaryResourceType as 'image' | 'video' | 'raw' | undefined,
+        expires_at: Math.floor(Date.now() / 1000) + 300,
+        attachment: true,
+      },
+    );
+  }
 
   async upload(file: Express.Multer.File | undefined, dto: any, uploadedBy: string) {
     if (!file && dto.youtubeUrl) {
@@ -48,6 +100,8 @@ export class MaterialsService {
     const result = await cloudinary.uploader.upload(file.path, {
       folder: folderPath,
       resource_type: 'auto',
+      type: 'authenticated',
+      access_mode: 'authenticated',
     });
     
     let derivedType = dto.type;
@@ -62,6 +116,9 @@ export class MaterialsService {
       uploadedBy,
       type: derivedType,
       fileUrl: result.secure_url,
+      cloudinaryPublicId: result.public_id,
+      cloudinaryFormat: result.format,
+      cloudinaryResourceType: result.resource_type,
       fileType: file.mimetype,
       fileSize: result.bytes,
     });
@@ -75,7 +132,12 @@ export class MaterialsService {
     return material;
   }
 
-  async incrementView(id: string) {
-    return this.model.findByIdAndUpdate(id, { $inc: { viewCount: 1 } }, { new: true });
+  async incrementView(id: string, userId: string, role: string) {
+    const material = await this.model.findById(id);
+    if (!material) throw new NotFoundException('Material not found');
+    const visible = await this.applyAccess(material, userId, role);
+    if (visible.locked) throw new NotFoundException('Material not found');
+    const updated = await this.model.findByIdAndUpdate(id, { $inc: { viewCount: 1 } }, { new: true });
+    return updated ? this.applyAccess(updated, userId, role) : null;
   }
 }

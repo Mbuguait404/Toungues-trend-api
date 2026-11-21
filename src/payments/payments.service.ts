@@ -1,85 +1,189 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, ServiceUnavailableException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
+import { randomUUID } from 'node:crypto';
 import Stripe from 'stripe';
 import { Payment, PaymentDocument } from './schemas/payment.schema';
+import { CoursesService } from '../courses/courses.service';
+import { EnrollmentsService } from '../enrollments/enrollments.service';
 
 @Injectable()
 export class PaymentsService {
-  private readonly logger = new Logger(PaymentsService.name);
   private stripe: Stripe;
 
   constructor(
     @InjectModel(Payment.name) private model: Model<PaymentDocument>,
     private config: ConfigService,
+    private coursesService: CoursesService,
+    private enrollmentsService: EnrollmentsService,
   ) {
     this.stripe = new Stripe(this.config.get<string>('stripe.secretKey') as string, { apiVersion: '2023-10-16' as any });
   }
 
-  async getMpesaToken(): Promise<string> {
-    const key = this.config.get('mpesa.consumerKey');
-    const secret = this.config.get('mpesa.consumerSecret');
-    const env = this.config.get('mpesa.env');
-    const baseUrl = env === 'production'
-      ? 'https://api.safaricom.co.ke'
-      : 'https://sandbox.safaricom.co.ke';
-    const auth = Buffer.from(`${key}:${secret}`).toString('base64');
-    const { data } = await axios.get(`${baseUrl}/oauth/v1/generate?grant_type=client_credentials`,
-      { headers: { Authorization: `Basic ${auth}` } });
-    return data.access_token;
+  private getPayHeroHeaders() {
+    const token = this.config.get<string>('payhero.authToken');
+    if (!token) {
+      throw new ServiceUnavailableException('PayHero is not configured');
+    }
+
+    return {
+      Authorization: token.startsWith('Basic ') ? token : `Basic ${token}`,
+      'Content-Type': 'application/json',
+    };
   }
 
-  async initiateMpesa(userId: string, dto: { phoneNumber: string; amount: number; courseTitle: string }) {
-    const token = await this.getMpesaToken();
-    const env = this.config.get('mpesa.env');
-    const baseUrl = env === 'production' ? 'https://api.safaricom.co.ke' : 'https://sandbox.safaricom.co.ke';
-    const shortcode = this.config.get('mpesa.shortcode');
-    const passkey = this.config.get('mpesa.passkey');
-    const timestamp = new Date().toISOString().replace(/[-T:.Z]/g, '').slice(0, 14);
-    const password = Buffer.from(`${shortcode}${passkey}${timestamp}`).toString('base64');
+  async initiatePayHero(userId: string, dto: { phoneNumber: string; courseId: string; level: string }) {
+    if (!/^(?:\+?254|0)?[17]\d{8}$/.test(dto.phoneNumber)) {
+      throw new BadRequestException('phoneNumber must be a valid Kenyan mobile number');
+    }
 
-    const { data } = await axios.post(`${baseUrl}/mpesa/stkpush/v1/processrequest`, {
-      BusinessShortCode: shortcode,
-      Password: password,
-      Timestamp: timestamp,
-      TransactionType: 'CustomerPayBillOnline',
-      Amount: dto.amount,
-      PartyA: dto.phoneNumber,
-      PartyB: shortcode,
-      PhoneNumber: dto.phoneNumber,
-      CallBackURL: `${this.config.get('apiUrl')}/api/v1/payments/mpesa/callback`,
-      AccountReference: 'TonguesTrend',
-      TransactionDesc: `Course payment - ${dto.courseTitle}`,
-    }, { headers: { Authorization: `Bearer ${token}` } });
+    const course = await this.coursesService.findById(dto.courseId);
+    if (!course || !course.isActive) throw new BadRequestException('Course is unavailable');
+    if (course.accessType === 'free') throw new BadRequestException('This course does not require payment');
+    if (!Number.isSafeInteger(course.price) || !course.price || course.price <= 0) {
+      throw new ServiceUnavailableException('This course has no valid price configured');
+    }
+    if ((course.currency ?? 'KES') !== 'KES') {
+      throw new BadRequestException('PayHero checkout is only available for KES-priced courses');
+    }
+    if (!course.levels.includes(dto.level as any)) throw new BadRequestException('Invalid course level');
 
-    await this.model.create({
-      userId, amount: dto.amount, currency: 'KES',
-      method: 'mpesa', status: 'pending', reference: data.CheckoutRequestID,
+    const channelId = Number(this.config.get<string>('payhero.channelId'));
+    const apiUrl = this.config.get<string>('apiUrl')?.replace(/\/$/, '');
+    if (!Number.isSafeInteger(channelId) || channelId <= 0 || !apiUrl) {
+      throw new ServiceUnavailableException('PayHero is not fully configured');
+    }
+    const headers = this.getPayHeroHeaders();
+    const enrollment = await this.enrollmentsService.enrol(userId, dto.courseId, dto.level);
+    if (enrollment.accessStatus === 'paid' || enrollment.accessStatus === 'free' || !enrollment.accessStatus) {
+      throw new BadRequestException('This enrollment already has full access');
+    }
+
+    const externalReference = randomUUID();
+    const payment = await this.model.create({
+      userId,
+      courseId: course._id,
+      enrollmentId: enrollment._id,
+      level: dto.level,
+      purchaseType: 'course',
+      amount: course.price,
+      currency: course.currency ?? 'KES',
+      method: 'payhero',
+      status: 'pending',
+      reference: externalReference,
+      externalReference,
     });
-    return data;
+
+    try {
+      const { data } = await axios.post('https://backend.payhero.co.ke/api/v2/payments', {
+        amount: course.price,
+        phone_number: dto.phoneNumber,
+        channel_id: channelId,
+        provider: 'm-pesa',
+        external_reference: externalReference,
+        customer_name: undefined,
+        callback_url: `${apiUrl}/api/v1/payments/payhero/callback`,
+      }, { headers });
+
+      if (!data?.success || !data?.reference) {
+        await this.model.findByIdAndUpdate(payment._id, { status: 'failed' });
+        throw new ServiceUnavailableException('PayHero did not accept the payment request');
+      }
+
+      await this.model.findByIdAndUpdate(payment._id, {
+        reference: data.reference,
+        checkoutRequestId: data.CheckoutRequestID,
+      });
+      return { ...data, paymentId: payment._id.toString() };
+    } catch (error) {
+      if (axios.isAxiosError(error) && error.response && error.response.status < 500) {
+        await this.model.findByIdAndUpdate(payment._id, { status: 'failed' });
+      }
+      if (error instanceof ServiceUnavailableException) throw error;
+      throw new ServiceUnavailableException('Unable to initiate payment with PayHero');
+    }
   }
 
-  async handleMpesaCallback(body: any) {
-    const result = body.Body?.stkCallback;
-    if (!result) return;
-    const status = result.ResultCode === 0 ? 'success' : 'failed';
-    await this.model.findOneAndUpdate(
-      { reference: result.CheckoutRequestID },
-      { status },
-    );
+  async handlePayHeroCallback(body: any) {
+    const callback = body?.response;
+    const externalReference = callback?.ExternalReference;
+    if (typeof externalReference !== 'string' || !externalReference) {
+      throw new BadRequestException('Invalid PayHero callback');
+    }
+
+    const payment = await this.model.findOne({ externalReference });
+    if (!payment) return { received: true };
+    if (payment.status === 'success') {
+      if (payment.enrollmentId) await this.enrollmentsService.grantPaidAccess(payment.enrollmentId.toString());
+      return { received: true };
+    }
+    if (payment.status !== 'pending') return { received: true };
+    if (callback.Amount == null || Number(callback.Amount) !== payment.amount) {
+      throw new ServiceUnavailableException('PayHero callback amount does not match the expected amount');
+    }
+
+    const { data } = await axios.get('https://backend.payhero.co.ke/api/v2/transaction-status', {
+      params: { reference: payment.reference },
+      headers: this.getPayHeroHeaders(),
+    });
+
+    if (data?.reference !== payment.reference) {
+      throw new ServiceUnavailableException('Could not verify PayHero transaction');
+    }
+    const confirmedAmount = data.amount ?? data.Amount;
+    if (confirmedAmount != null && Number(confirmedAmount) !== payment.amount) {
+      throw new ServiceUnavailableException('PayHero transaction amount does not match the expected amount');
+    }
+
+    const status = data.status === 'SUCCESS' ? 'success' : data.status === 'FAILED' ? 'failed' : null;
+    if (status) {
+      const result = await this.model.updateOne(
+        { _id: payment._id, status: 'pending' },
+        { status },
+      );
+      if (status === 'success' && payment.enrollmentId) {
+        const current = result.modifiedCount
+          ? { status: 'success' }
+          : await this.model.findById(payment._id).select('status').lean();
+        if (current?.status === 'success') {
+          await this.enrollmentsService.grantPaidAccess(payment.enrollmentId.toString());
+        }
+      }
+    }
+    return { received: true };
   }
 
-  async createStripeIntent(userId: string, dto: { amount: number; currency: string }) {
+  async createStripeIntent(userId: string, dto: { courseId: string; level: string }) {
+    const course = await this.coursesService.findById(dto.courseId);
+    if (!course || !course.isActive || course.accessType === 'free') {
+      throw new BadRequestException('Paid course not found');
+    }
+    if (!Number.isSafeInteger(course.price) || !course.price || course.price <= 0) {
+      throw new ServiceUnavailableException('This course has no valid price configured');
+    }
+    if (!course.levels.includes(dto.level as any)) throw new BadRequestException('Invalid course level');
+    const enrollment = await this.enrollmentsService.enrol(userId, dto.courseId, dto.level);
+    if (enrollment.accessStatus === 'paid' || enrollment.accessStatus === 'free' || !enrollment.accessStatus) {
+      throw new BadRequestException('This enrollment already has full access');
+    }
     const intent = await this.stripe.paymentIntents.create({
-      amount: dto.amount * 100,
-      currency: dto.currency.toLowerCase(),
-      metadata: { userId },
+      amount: course.price * 100,
+      currency: (course.currency ?? 'KES').toLowerCase(),
+      metadata: { userId, courseId: dto.courseId, enrollmentId: enrollment._id.toString() },
     });
     await this.model.create({
-      userId, amount: dto.amount, currency: dto.currency.toUpperCase(),
-      method: 'stripe', status: 'pending', reference: intent.id,
+      userId,
+      courseId: course._id,
+      enrollmentId: enrollment._id,
+      level: dto.level,
+      purchaseType: 'course',
+      amount: course.price,
+      currency: course.currency ?? 'KES',
+      method: 'stripe',
+      status: 'pending',
+      reference: intent.id,
     });
     return { clientSecret: intent.client_secret };
   }
@@ -90,18 +194,34 @@ export class PaymentsService {
     );
     if (event.type === 'payment_intent.succeeded') {
       const intent = event.data.object as Stripe.PaymentIntent;
-      await this.model.findOneAndUpdate({ reference: intent.id }, { status: 'success' });
+      const payment = await this.model.findOne({ reference: intent.id });
+      if (payment?.status === 'pending') {
+        await this.model.updateOne({ _id: payment._id, status: 'pending' }, { status: 'success' });
+      }
+      if (payment?.enrollmentId && (payment.status === 'pending' || payment.status === 'success')) {
+        await this.enrollmentsService.grantPaidAccess(payment.enrollmentId.toString());
+      }
     }
   }
 
-  findMyPayments(userId: string) { return this.model.find({ userId }).sort({ createdAt: -1 }); }
+  findMyPayments(userId: string) {
+    return this.model.find({ userId }).populate('courseId', 'title language')
+      .sort({ createdAt: -1 });
+  }
+
+  findMyPaymentById(id: string, userId: string) {
+    return this.model.findOne({ _id: id, userId })
+      .populate('courseId', 'title language');
+  }
 
   findAll(query: any = {}) {
     const { status, method, page = 1, limit = 20 } = query;
     const filter: any = {};
-    if (status) filter.status = status;
-    if (method) filter.method = method;
+    if (status) filter.status = String(status).toLowerCase();
+    if (method) filter.method = String(method).toLowerCase();
     return this.model.find(filter).skip((page-1)*limit).limit(Number(limit))
-      .populate('userId', 'name email').sort({ createdAt: -1 });
+      .populate('userId', 'name email')
+      .populate('courseId', 'title language')
+      .sort({ createdAt: -1 });
   }
 }

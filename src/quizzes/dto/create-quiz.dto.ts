@@ -1,4 +1,4 @@
-import { IsString, IsNumber, IsOptional, IsArray, ValidateNested, IsMongoId, Min, Max } from 'class-validator';
+import { IsString, IsNumber, IsOptional, IsArray, ValidateNested, IsMongoId, Min, Max, IsEnum } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class QuizQuestionDto {
@@ -23,6 +23,10 @@ export class CreateQuizDto {
 
   @IsString()
   title: string;
+
+  @IsEnum(['free', 'premium'])
+  @IsOptional()
+  accessType?: 'free' | 'premium';
 
   @IsArray()
   @ValidateNested({ each: true })
