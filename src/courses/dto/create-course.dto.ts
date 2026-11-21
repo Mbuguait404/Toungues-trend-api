@@ -1,4 +1,4 @@
-import { IsString, IsEnum, IsArray, IsOptional, IsNumber, Min } from 'class-validator';
+import { IsString, IsEnum, IsArray, IsOptional, IsNumber, IsBoolean, Min } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
 export class CreateCourseDto {
@@ -12,4 +12,7 @@ export class CreateCourseDto {
   @IsNumber() @Min(0) @IsOptional() price?: number;
   @ApiProperty({ enum: ['KES', 'EUR', 'CHF', 'USD'], required: false, default: 'KES' })
   @IsEnum(['KES', 'EUR', 'CHF', 'USD']) @IsOptional() currency?: 'KES' | 'EUR' | 'CHF' | 'USD';
+  // Lets a deactivated course be brought back — DELETE only soft-deletes.
+  @ApiProperty({ required: false, default: true })
+  @IsBoolean() @IsOptional() isActive?: boolean;
 }
